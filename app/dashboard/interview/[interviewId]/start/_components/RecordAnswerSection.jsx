@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+"use client"
+import React, { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 import Webcam from 'react-webcam'
 import useSpeechToText from 'react-hook-speech-to-text'
@@ -15,6 +16,8 @@ function RecordAnswerSection({ mockInterviewQuestion, activeQuestionIndex, inter
     const [userAnswer, setUserAnswer] = useState('');
     const { user } = useUser();
     const [loading, setLoading] = useState(false);
+    const [hasPermissions, setHasPermissions] = useState(false);
+
     const {
         isRecording,
         results,
@@ -23,34 +26,58 @@ function RecordAnswerSection({ mockInterviewQuestion, activeQuestionIndex, inter
         setResults
     } = useSpeechToText({
         continuous: true,
-        useLegacyResults: false
+        useLegacyResults: false,
+        onError: (err) => {
+            toast.error("Speech recognition error: " + err.message);
+        }
     });
 
     useEffect(() => {
-        const newAnswer = results.reduce((acc, result) => acc + result.transcript, '');
-        setUserAnswer(prevAns => prevAns + newAnswer);
-    }, [results]);
+        checkPermissions();
+    }, []);
+
+    const checkPermissions = async () => {
+        try {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            setHasPermissions(true);
+        } catch (err) {
+            toast.error("Microphone permission is required");
+            setHasPermissions(false);
+        }
+    };
 
     useEffect(() => {
-        if (!isRecording && userAnswer.length > 10) {
-            UpdateUserAnswer();
+        if (results.length > 0) {
+            const newAnswer = results.reduce((acc, result) => acc + result.transcript, '');
+            setUserAnswer(prev => prev + ' ' + newAnswer);
         }
-    }, [isRecording, userAnswer]);
+    }, [results]);
 
     const StartStopRecording = async () => {
+        if (!hasPermissions) {
+            await checkPermissions();
+            return;
+        }
+
         try {
             if (isRecording) {
                 await stopSpeechToText();
+                await UpdateUserAnswer();
             } else {
+                setResults([]);
                 await startSpeechToText();
             }
         } catch (error) {
-            console.error('Error toggling speech recognition:', error);
-            toast.error('Failed to toggle speech recognition. Please check your microphone permissions.');
+            toast.error('Failed to toggle recording');
         }
     };
 
     const UpdateUserAnswer = async () => {
+        if (!userAnswer || userAnswer.trim().length < 10) {
+            toast.error('Answer is too short');
+            return;
+        }
+
         setLoading(true);
         try {
             const feedbackPrompt = `Question: ${mockInterviewQuestion[activeQuestionIndex]?.question}, User Answer: ${userAnswer}. Based on the question and user answer, please provide a rating and feedback for improvement in 3 to 5 lines in JSON format with 'rating' and 'feedback' fields.`;
@@ -70,12 +97,12 @@ function RecordAnswerSection({ mockInterviewQuestion, activeQuestionIndex, inter
                 createdAt: moment().format('DD-MM-YYYY')
             });
 
-            toast('User Answer recorded successfully');
+            toast.success('Answer recorded successfully');
             setUserAnswer('');
             setResults([]);
         } catch (error) {
-            console.error('Error updating user answer:', error);
-            toast.error('Failed to record user answer');
+            console.error('Error:', error);
+            toast.error('Failed to process answer');
         } finally {
             setLoading(false);
         }
@@ -84,7 +111,13 @@ function RecordAnswerSection({ mockInterviewQuestion, activeQuestionIndex, inter
     return (
         <div className='flex items-center justify-center flex-col'>
             <div className='flex flex-col mt-20 justify-center items-center bg-black rounded-lg p-5'>
-                <Image src='/webcam.png' width={200} height={200} alt="Webcam" className='absolute' />
+                <Image
+                    src='/webcam.png'
+                    width={200}
+                    height={200}
+                    alt="Webcam"
+                    className='absolute'
+                />
                 <Webcam
                     mirrored={true}
                     style={{

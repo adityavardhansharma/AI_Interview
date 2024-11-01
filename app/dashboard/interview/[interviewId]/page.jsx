@@ -7,14 +7,31 @@ import { MockInterview } from '@/utils/schema'
 import { eq } from 'drizzle-orm'
 import { Lightbulb, WebcamIcon } from 'lucide-react'
 import Webcam from 'react-webcam'
+import { toast } from 'sonner'
 
 function Interview({ params }) {
     const [interviewData, setInterviewData] = useState(null);
     const [webCamEnabled, setWebCamEnabled] = useState(false);
+    const [hasPermissions, setHasPermissions] = useState(false);
 
     useEffect(() => {
         getInterviewDetails();
+        checkPermissions();
     }, [params.interviewId]);
+
+    const checkPermissions = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            });
+            setHasPermissions(true);
+            stream.getTracks().forEach(track => track.stop());
+        } catch (err) {
+            toast.error("Please enable camera and microphone permissions");
+            setHasPermissions(false);
+        }
+    };
 
     const getInterviewDetails = async () => {
         try {
@@ -26,15 +43,22 @@ function Interview({ params }) {
             if (result.length > 0) {
                 setInterviewData(result[0]);
             } else {
-                console.log('No interview data found');
+                toast.error('No interview data found');
             }
         } catch (error) {
-            console.error('Error fetching interview details:', error);
+            toast.error('Error fetching interview details');
         }
     };
 
-    const handleWebcamEnable = () => {
-        setWebCamEnabled(true);
+    const handleWebcamEnable = async () => {
+        try {
+            await checkPermissions();
+            if (hasPermissions) {
+                setWebCamEnabled(true);
+            }
+        } catch (error) {
+            toast.error("Failed to enable webcam");
+        }
     };
 
     return (
@@ -43,15 +67,23 @@ function Interview({ params }) {
             <div className='grid grid-cols-1 md:grid-cols-2 gap-10'>
                 <div className='flex flex-col my-5 gap-5'>
                     <div className='flex flex-col p-5 rounded-lg border gap-5'>
-                        <h2 className='text-lg'><strong>Job Role/Job Position:</strong> {interviewData?.jobPosition}</h2>
-                        <h2 className='text-lg'><strong>Job Description/Tech Stack:</strong> {interviewData?.jobDesc}</h2>
-                        <h2 className='text-lg'><strong>Years of Experience:</strong> {interviewData?.jobExperience}</h2>
+                        <h2 className='text-lg'>
+                            <strong>Job Role/Job Position:</strong> {interviewData?.jobPosition}
+                        </h2>
+                        <h2 className='text-lg'>
+                            <strong>Job Description/Tech Stack:</strong> {interviewData?.jobDesc}
+                        </h2>
+                        <h2 className='text-lg'>
+                            <strong>Years of Experience:</strong> {interviewData?.jobExperience}
+                        </h2>
                     </div>
                     <div className='p-5 border rounded-lg border-yellow-300 bg-yellow-100'>
                         <h2 className='flex gap-2 items-center text-yellow-500'>
                             <Lightbulb /><strong>Information</strong>
                         </h2>
-                        <h2 className='mt-3 text-yellow-500'>{process.env.NEXT_PUBLIC_INFORMATION || 'No information available'}</h2>
+                        <h2 className='mt-3 text-yellow-500'>
+                            {process.env.NEXT_PUBLIC_INFORMATION || 'No information available'}
+                        </h2>
                     </div>
                 </div>
                 <div>
