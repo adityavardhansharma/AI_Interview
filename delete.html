@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React Game</title>
+
+    <!-- Tailwind CSS (Optional for Styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React and ReactDOM (CDN) -->
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel (For JSX support in-browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+</head>
+<body class="bg-gray-100 p-8">
+<!-- React root element -->
+<div id="root"></div>
+
+<!-- React Application Script -->
+<script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const TOTAL_ROUNDS = 5;
+    const POINTS_PER_CORRECT_ANSWER = 10;
+    const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
+    const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+
+    const COLORS = {
+        primary: '#2D3250',
+        secondary: '#424769',
+        accent: '#7077A1',
+        highlight: '#F6B17A',
+        background: '#F7F7F7',
+    };
+
+    const generateQuestionWithGemini = async () => {
+        const prompt = `You are a creative question generator for a word game.`;
+
+        try {
+            const response = await fetch(GEMINI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': \`Bearer ${GEMINI_API_KEY}\`,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        });
+
+        const data = await response.json();
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+      } catch (error) {
+        console.error('Error generating question:', error);
+        return {
+          question: "Name something that brings joy but costs nothing",
+          criteria: ["Must be free", "Must bring positive emotions", "Must be realistic"],
+          category: "creativity",
+        };
+      }
+    };
+
+    const validateAnswerWithGemini = async (question, criteria, answer) => {
+      const prompt = `You are evaluating an answer for a word game. Question: "${question}" Answer: "${answer}"`;
+
+      try {
+        const response = await fetch(GEMINI_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': \`Bearer ${GEMINI_API_KEY}\`,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        });
+
+        const data = await response.json();
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+      } catch (error) {
+        console.error('Error validating answer:', error);
+        return { isCorrect: false, explanation: "Error validating answer" };
+      }
+    };
+
+    const GameComponent = () => {
+      const [gameState, setGameState] = useState('setup');
+      const [playerCount, setPlayerCount] = useState(2);
+      const [currentRound, setCurrentRound] = useState(1);
+      const [currentPlayer, setCurrentPlayer] = useState(1);
+      const [scores, setScores] = useState({});
+      const [currentQuestion, setCurrentQuestion] = useState(null);
+      const [answer, setAnswer] = useState('');
+      const [rankings, setRankings] = useState([]);
+      const [feedback, setFeedback] = useState(null);
+      const [isValidating, setIsValidating] = useState(false);
+
+      // Initialize scores when player count changes
+      useEffect(() => {
+        const initialScores = {};
+        for (let i = 1; i <= playerCount; i++) {
+          initialScores[i] = 0;
+        }
+        setScores(initialScores);
+      }, [playerCount]);
+
+      // Generate questions at game start
+      useEffect(() => {
+        const fetchQuestions = async () => {
+          if (gameState === 'playing') {
+            const newQuestions = [];
+            for (let i = 0; i < TOTAL_ROUNDS; i++) {
+              const question = await generateQuestionWithGemini();
+              newQuestions.push(question);
+            }
+            setQuestions(newQuestions);
+            setCurrentQuestion(newQuestions[0]);
+          }
+        };
+        fetchQuestions();
+      }, [gameState]);
+
+      const startNewRound = () => {
+        setCurrentQuestion(questions[currentRound - 1]);
+        setCurrentPlayer(1);
+        setFeedback(null);
+      };
+
+      const handleAnswer = async () => {
+        if (!answer.trim()) return;
+        setIsValidating(true);
+        const validation = await validateAnswerWithGemini(
+          currentQuestion.question,
+          currentQuestion.criteria,
+          answer
+        );
+        setIsValidating(false);
+        setFeedback({
+          isCorrect: validation.isCorrect,
+          message: validation.explanation,
+        });
+        if (validation.isCorrect) {
+          setScores((prev) => ({
+            ...prev,
+            [currentPlayer]: prev[currentPlayer] + POINTS_PER_CORRECT_ANSWER,
+          }));
+        }
+        setTimeout(() => {
+          if (currentPlayer < playerCount) {
+            setCurrentPlayer((prev) => prev + 1);
+          } else {
+            if (currentRound < TOTAL_ROUNDS) {
+              setCurrentRound((prev) => prev + 1);
+              startNewRound();
+            } else {
+              const rankingArray = Object.entries(scores)
+                .map(([player, score]) => ({ player, score }))
+                .sort((a, b) => b.score - a.score);
+              setRankings(rankingArray);
+              setGameState('gameOver');
+            }
+          }
+          setAnswer('');
+          setFeedback(null);
+        }, 2000);
+      };
+
+      return (
+        <div className="container mx-auto">
+          {gameState === 'setup' && (
+            <div className="setup-screen">
+              <h1 className="text-4xl mb-6">Setup</h1>
+              <button
+                className="bg-blue-500 text-white rounded-lg px-6 py-3"
+                onClick={() => setGameState('playing')}
+              >
+                Start Game
+              </button>
+            </div>
+          )}
+
+          {gameState === 'playing' && (
+            <div className="game-screen">
+              <h2 className="text-2xl mb-6" style={{ color: COLORS.primary }}>
+                Question {currentRound}:
+              </h2>
+              <p className="text-xl mb-4">{currentQuestion?.question}</p>
+              <input
+                type="text"
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                className="p-4 border rounded-lg w-full"
+              />
+              <button
+                className="bg-yellow-500 text-white px-4 py-2 rounded-lg"
+                onClick={handleAnswer}
+              >
+                Submit
+              </button>
+              {feedback && (
+                <div className={`p-4 ${feedback.isCorrect ? 'bg-green-100' : 'bg-red-100'}`}>
+                  {feedback.message}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    ReactDOM.render(<GameComponent />, document.getElementById('root'));
+  </script>
+</body>
+</html>
